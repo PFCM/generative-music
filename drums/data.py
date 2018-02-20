@@ -87,6 +87,7 @@ IGNORED_MESSAGES = [  # midi stuff we don't care about
     'smpte_offset',
     'key_signature',  # this is just drums atm
     'sequencer_specific',  # we are non-specific
+    'end_of_track',  # figure this out ahead of time
     'unknown_meta'
 ]
 
@@ -107,45 +108,35 @@ def _dict_update(data, **kwargs):
     return data
 
 
+def ticks_to_sixteenth(ticks, ticks_per_beat, nearest=True):
+    """Given the resolution info from a midi file (ticks per beat) convert
+    a time in ticks to a time in sixteenth notes, optionally the nearest
+    integral one."""
+    ticks_per_sixteenth = ticks_per_beat / 4
+    time_delta = ticks / ticks_per_sixteenth
+    if nearest:
+        time_delta = int(round(time_delta))
+    return time_delta
+
+
 def _note_on_update(data, msg):
     """Update the accumulated data with a new note"""
     if msg.channel == 9:  # GM drum channel only
-        data = _write_for(data, msg.time)
-        data['active_notes'][INSTRUMENT_MAP[msg.note]] = msg.velocity
+        # quantise the time to sixteenth notes
+        ftime_delta = ticks_to_sixteenth(msg.time, data['ticks_per_beat'],
+                                         False)
+        index = int(round(data['current_time'] + ftime_delta))
+        data['sequence'][index, INSTRUMENT_MAP[msg.note]] = msg.velocity
+        data['current_time'] += ftime_delta
     else:
         data = _ignore(data, msg)
     return data
 
 
-def _note_off_update(data, _):
+def _note_off_update(data, msg):
     """for now just ignore them"""
-    return data
-
-
-def _write_for(data, ticks):
-    """Write notes into the sequence for a given number of ticks"""
-    # quantise the time to sixteenth notes
-    ticks_per_sixteenth = data['ticks_per_beat'] / 16
-    time_delta = int(round(ticks / ticks_per_sixteenth))
-    if time_delta != ticks:
-        logging.info('quantised %d ticks to %d', ticks,
-                     time_delta * ticks_per_sixteenth)
-    if time_delta > 0 and 'active_notes' in data:
-        active_notes = data['active_notes']
-        if 'sequence' not in data:
-            data['sequence'] = []
-        for _ in range(0, time_delta):
-            data['sequence'].append(active_notes)
-            active_notes = np.zeros(8, dtype=np.int)
-        data['active_notes'] = active_notes
-    elif 'active_notes' not in data:
-        data['active_notes'] = np.zeros(8, dtype=np.int)
-    return data
-
-
-def _flush(data, msg):
-    """flush any active notes, finalising the data"""
-    data = _write_for(data, msg.time)
+    data['current_time'] += ticks_to_sixteenth(msg.time,
+                                               data['ticks_per_beat'], False)
     return data
 
 
@@ -157,7 +148,7 @@ def _read_message(data, msg):
         data = _ignore(data, msg)
     elif msg.type == 'time_signature':
         # NOTE: right now we're only handling fours
-        if msg.numerate == 4 and msg.denominator == 4:
+        if msg.numerator == 4 and msg.denominator == 4:
             data = _dict_update(
                 data,
                 clocks_per_click=msg.clocks_per_click,
@@ -168,10 +159,40 @@ def _read_message(data, msg):
         data = _note_on_update(data, msg)
     elif msg.type == 'note_off':
         data = _note_off_update(data, msg)
-    elif msg.type == 'end_of_track':
-        data = _flush(data, msg)
 
     return data
+
+
+def chunk_iterator(data, chunk_size):
+    """break up a sequence longer than `chunk_size` into segments
+    of `chunk_size`, discarding any leftover"""
+    for i in range(0, len(data), chunk_size):
+        if len(data) - i >= chunk_size:
+            yield data[i:i + chunk_size]
+
+
+def repeat_or_chunk(data, chunk_size):
+    """Either repeat some data until there are chunk_size elements
+    otherwise split into chunk_size pieces. Or nothing, rarely"""
+    if len(data) < chunk_size:
+        repeats = chunk_size // len(data)
+        if repeats != chunk_size / len(data):
+            logging.info('skipping something that does not divide four bars')
+            data = []
+        else:
+            data = data * repeats
+        yield data
+    else:
+        return chunk_iterator(data, chunk_size)
+
+
+def _get_tempo(msgs):
+    """Search through msgs for a meta message with type 'set_tempo' and return
+    the tempo of the last one found."""
+    msgs = list(filter(lambda m: m.type == 'set_tempo', msgs))
+    if msgs:
+        return mido.tempo2bpm(msgs[-1].tempo)
+    return 120  # by the standard, default to 120
 
 
 def read_file(path):
@@ -193,8 +214,16 @@ def read_file(path):
     mid = mido.MidiFile(path)
     # reading the notes and collecting is a fold
     try:
-        results = reduce(_read_message, mid.tracks[1],
-                         {'ticks_per_beat': mid.ticks_per_beat})
+        beats_per_minute = _get_tempo(mid.tracks[0] + mid.tracks[1])
+        len_in_beats = int(round((mid.length / 60) * beats_per_minute))
+        logging.info('track is %d beats long', len_in_beats)
+        seq = np.zeros((len_in_beats * 4, 8), dtype=np.int)
+        results = reduce(
+            _read_message, mid.tracks[1], {
+                'ticks_per_beat': mid.ticks_per_beat,
+                'sequence': seq,
+                'current_time': 0
+            })
         # if the sequence is the wrong size, either repeat or chop
         print('\n'.join([
             ','.join(['{:>3}'.format(item) for item in vec])
@@ -202,9 +231,10 @@ def read_file(path):
         ]))
         print(len(results['sequence']))
 
-        if len(results['sequence']) != 256:
-            logging.info('sequence is the wrong length!')
-        return [np.concatenate(results['sequence'])]
+        results = filter(lambda seq: seq != [],
+                         repeat_or_chunk(results['sequence'], 256))
+        return map(lambda x: np.concatenate(list(x)), results)
+
     except TimeSignatureException as exc:
         logging.info('%s: wrong time signature', path)
         return []
