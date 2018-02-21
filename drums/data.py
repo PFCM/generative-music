@@ -19,7 +19,7 @@ TOM_HIGH = 6
 TOM_LOW = 7
 
 # INSTRUMENT MAPPING
-INSTRUMENT_MAP = defaultdict(
+NOTE_INSTRUMENT_MAP = defaultdict(
     lambda: None,
     {
         35: KICK,  # bass drum 1
@@ -70,6 +70,11 @@ INSTRUMENT_MAP = defaultdict(
         80: None,  # mute triangle
         81: None,  # open triangle
     })
+
+INSTRUMENT_NOTE_MAP = {
+    b: a
+    for a, b in INSTRUMENT_NOTE_MAP.items() if a is not None
+}
 
 IGNORED_MESSAGES = [  # midi stuff we don't care about
     'copyright',  # lol?
@@ -126,7 +131,12 @@ def _note_on_update(data, msg):
         ftime_delta = ticks_to_sixteenth(msg.time, data['ticks_per_beat'],
                                          False)
         index = int(round(data['current_time'] + ftime_delta))
-        data['sequence'][index, INSTRUMENT_MAP[msg.note]] = msg.velocity
+        # it might round off the end
+        if index == data['sequence'].shape[0]:
+            index -= 1
+        if msg.velocity > 0:
+            data['sequence'][index, NOTE_INSTRUMENT_MAP[
+                msg.note]] = msg.velocity
         data['current_time'] += ftime_delta
     else:
         data = _ignore(data, msg)
@@ -167,7 +177,7 @@ def chunk_iterator(data, chunk_size):
     """break up a sequence longer than `chunk_size` into segments
     of `chunk_size`, discarding any leftover"""
     for i in range(0, len(data), chunk_size):
-        if len(data) - i >= chunk_size:
+        if (i + chunk_size) <= len(data):
             yield data[i:i + chunk_size]
 
 
@@ -176,14 +186,13 @@ def repeat_or_chunk(data, chunk_size):
     otherwise split into chunk_size pieces. Or nothing, rarely"""
     if len(data) < chunk_size:
         repeats = chunk_size // len(data)
-        if repeats != chunk_size / len(data):
+        if (repeats * len(data)) != chunk_size:
             logging.info('skipping something that does not divide four bars')
             data = []
         else:
-            data = data * repeats
-        yield data
-    else:
-        return chunk_iterator(data, chunk_size)
+            data = list(data) * repeats
+        return [data]
+    return chunk_iterator(data, chunk_size)
 
 
 def _get_tempo(msgs):
@@ -193,6 +202,14 @@ def _get_tempo(msgs):
     if msgs:
         return mido.tempo2bpm(msgs[-1].tempo)
     return 120  # by the standard, default to 120
+
+
+def _get_time_signature(msgs):
+    """Search for time signature messages, return the value of the first"""
+    msg = next(msg for msg in msgs if msg.type == 'time_signature')
+    if msg:
+        return (msg.numerator, msg.denominator)
+    return (4, 4)
 
 
 def read_file(path):
@@ -213,9 +230,10 @@ def read_file(path):
     """
     mid = mido.MidiFile(path)
     # reading the notes and collecting is a fold
-    try:
-        beats_per_minute = _get_tempo(mid.tracks[0] + mid.tracks[1])
-        len_in_beats = int(round((mid.length / 60) * beats_per_minute))
+    beats_per_minute = _get_tempo(mid.tracks[0] + mid.tracks[1])
+    time_signature = _get_time_signature(mid.tracks[0] + mid.tracks[1])
+    if time_signature == (4, 4):
+        len_in_beats = int(np.ceil((mid.length / 60) * beats_per_minute))
         logging.info('track is %d beats long', len_in_beats)
         seq = np.zeros((len_in_beats * 4, 8), dtype=np.int)
         results = reduce(
@@ -225,28 +243,64 @@ def read_file(path):
                 'current_time': 0
             })
         # if the sequence is the wrong size, either repeat or chop
-        print('\n'.join([
-            ','.join(['{:>3}'.format(item) for item in vec])
-            for vec in results['sequence']
-        ]))
-        print(len(results['sequence']))
+        # print('\n'.join([
+        #     ','.join(['{:>3}'.format(item) for item in vec])
+        #     for vec in results['sequence']
+        # ]))
 
         results = filter(lambda seq: seq != [],
-                         repeat_or_chunk(results['sequence'], 256))
-        return map(lambda x: np.concatenate(list(x)), results)
+                         repeat_or_chunk(results['sequence'], 64))
+        results = list(results)
+    else:
+        logging.info('skipping non 4/4 track: %s', path)
+        results = []
+    return map(lambda x: np.concatenate(list(x)), results)
 
-    except TimeSignatureException as exc:
-        logging.info('%s: wrong time signature', path)
-        return []
+
+def vec_to_notes(midi_vector, ticks_per_beat=48):
+    """Turn a 512 vector of drums into note ons and offs"""
+    # first lets organise it a bit better
+    midi_vector = midi_vector.reshape((-1, 8))
+    # make note ons and offs
+    delta = 0
+    messages = []
+    ticks_per_sixteenth = ticks_per_beat / 4
+    # LOL at least make some functions you loser
+    for active_notes in midi_vector:
+        if np.all(active_notes == 0):
+            delta += ticks_per_sixteenth
+        else:
+            notes = active_notes.non_zero()
+            # note ons
+            for note in notes:
+                messages.append(
+                    mido.Message(
+                        'note_on',
+                        note=NOTE_INSTRUMENT_MAP[note],
+                        velocity=active_notes[note],
+                        time=int(delta)))
+                delta = 0
+            # wait a sec
+            delta = ticks_to_sixteenth
+            # note offs
+            for note in notes:
+                messages.append(
+                    mido.Message(
+                        'note_off',
+                        note=NOTE_INSTRUMENT_MAP[note],
+                        velocity=0,
+                        time=int(delta)))
+                delta = 0
+    return messages
 
 
 def main():
     import sys
-    logging.getLogger().setLevel(logging.DEBUG)
+    logging.getLogger().setLevel(logging.WARNING)
     results = list(itertools.chain.from_iterable(map(read_file, sys.argv[1:])))
-    print(len(results))
-    lens = np.array([v.shape[0] for v in results])
-    print(np.mean(lens), np.min(lens), np.max(lens))
+    data = np.stack(results)
+    print('data shape: {}'.format(data.shape))
+    np.save('../drums/drum-midi.npy', data)
 
 
 if __name__ == '__main__':
