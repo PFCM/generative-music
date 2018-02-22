@@ -1,2 +1,5 @@
+networkx
 numpy
 mido
+scipy
+scikit-learn

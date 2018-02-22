@@ -258,9 +258,10 @@ def read_file(path):
 
 
 def vec_to_notes(midi_vector, ticks_per_beat=48):
-    """Turn a 512 vector of drums into note ons and offs"""
+    """Turn a vector of drums into note ons and offs"""
     # first lets organise it a bit better
     midi_vector = midi_vector.reshape((-1, 8))
+    logging.info('midi vector reshaped to %s', midi_vector.shape)
     # make note ons and offs
     delta = 0
     messages = []
@@ -292,6 +293,11 @@ def vec_to_notes(midi_vector, ticks_per_beat=48):
                         time=int(delta)))
                 delta = 0
     return messages
+
+
+def make_midi_file(note_events):
+    """Make a fully fledged midi file out of a list of note on/off events."""
+    mfile = mido.MidiFile()
 
 
 def main():
