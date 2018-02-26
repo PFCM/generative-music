@@ -15,15 +15,21 @@ def main():
     """Load up some pre-transformed drum pattern vectors and see if we can
     have a little bit of a dictionary learn on them"""
     data = np.load('../drums/drum-midi.npy')
+    data = data.astype(np.float)
     if not os.path.exists('dictionary_learner.pkl'):
-        decomp = sklearn.decomposition.DictionaryLearning(
-            n_components=64, verbose=True, n_jobs=8)
+        decomp = sklearn.decomposition.NMF(
+            n_components=16,
+            l1_ratio=0.5,
+            alpha=0.5,
+            solver='cd',
+            verbose=True,
+        )
         print('fitting')
         start = time.time()
         coeffs = decomp.fit_transform(data)
         end = time.time()
         joblib.dump(decomp, 'dictionary_learner.pkl')
-        print('fitted, {}s'.format(end - start))
+        print('fitted, {}s, ({})'.format(end - start, coeffs.shape))
     else:
         print('found pre-existing learner')
         decomp = joblib.load('dictionary_learner.pkl')
@@ -43,7 +49,7 @@ def main():
         nn_graph = joblib.load('nn_graph.pkl')
 
     # transform back
-    origs = np.dot(coeffs, decomp.components_)
+    origs = decomp.inverse_transform(coeffs)
     print('MSE: {}'.format(np.mean((origs - data)**2)))
 
 
