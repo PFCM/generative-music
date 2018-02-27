@@ -72,8 +72,14 @@ NOTE_INSTRUMENT_MAP = defaultdict(
     })
 
 INSTRUMENT_NOTE_MAP = {
-    b: a
-    for a, b in INSTRUMENT_NOTE_MAP.items() if a is not None
+    KICK: 35,
+    SNARE: 38,
+    HIHAT_OPEN: 46,
+    HIHAT_CLOSED: 42,
+    CRASH: 57,
+    RIDE: 51,
+    TOM_HIGH: 47,
+    TOM_LOW: 43
 }
 
 IGNORED_MESSAGES = [  # midi stuff we don't care about
@@ -257,7 +263,7 @@ def read_file(path):
     return map(lambda x: np.concatenate(list(x)), results)
 
 
-def vec_to_notes(midi_vector, ticks_per_beat=48):
+def vec_to_notes(midi_vector, channel=9, ticks_per_beat=48):
     """Turn a vector of drums into note ons and offs"""
     # first lets organise it a bit better
     midi_vector = midi_vector.reshape((-1, 8))
@@ -271,33 +277,60 @@ def vec_to_notes(midi_vector, ticks_per_beat=48):
         if np.all(active_notes == 0):
             delta += ticks_per_sixteenth
         else:
-            notes = active_notes.non_zero()
+            notes, = active_notes.nonzero()
             # note ons
             for note in notes:
                 messages.append(
                     mido.Message(
                         'note_on',
-                        note=NOTE_INSTRUMENT_MAP[note],
+                        note=INSTRUMENT_NOTE_MAP[note],
                         velocity=active_notes[note],
-                        time=int(delta)))
+                        time=int(delta),
+                        channel=channel))
                 delta = 0
             # wait a sec
-            delta = ticks_to_sixteenth
+            delta = ticks_per_sixteenth
             # note offs
             for note in notes:
                 messages.append(
                     mido.Message(
                         'note_off',
-                        note=NOTE_INSTRUMENT_MAP[note],
+                        note=INSTRUMENT_NOTE_MAP[note],
                         velocity=0,
-                        time=int(delta)))
+                        time=int(delta),
+                        channel=channel))
                 delta = 0
     return messages
 
 
-def make_midi_file(note_events):
+def _make_metadata_track(name, time_signature, tempo, length):
+    """Make a track of metadata events"""
+    return [
+        mido.MetaMessage('track_name', name=name or 'unnamed', time=0),
+        mido.MetaMessage(
+            'time_signature',
+            numerator=time_signature[0],
+            denominator=time_signature[1],
+            time=0),
+        mido.MetaMessage('set_tempo', tempo=mido.bpm2tempo(tempo), time=0),
+        mido.MetaMessage('end_of_track', time=length)
+    ]
+
+
+def make_midi_file(note_events, ticks_per_beat=48, name=None):
     """Make a fully fledged midi file out of a list of note on/off events."""
     mfile = mido.MidiFile()
+    mfile.ticks_per_beat = ticks_per_beat
+    # to be like most midi files I've looked at, we will make a first track
+    # with just metadata (tempo in particular)
+    first_track = _make_metadata_track(
+        name, (4, 4), 120, sum(event.time for event in note_events))
+    # and the second track is just the notes
+    mfile.add_track()
+    mfile.add_track()
+    mfile.tracks[0].extend(first_track)
+    mfile.tracks[1].extend(note_events)
+    return mfile
 
 
 def main():
@@ -307,6 +340,8 @@ def main():
     data = np.stack(results)
     print('data shape: {}'.format(data.shape))
     np.save('../drums/drum-midi.npy', data)
+    reconstituted = make_midi_file(vec_to_notes(data[0]), name='test')
+    reconstituted.save('test.mid')
 
 
 if __name__ == '__main__':
