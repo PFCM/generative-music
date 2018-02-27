@@ -34,7 +34,7 @@ def main():
     """Load up some pre-transformed drum pattern vectors and see if we can
     have a little bit of a dictionary learn on them"""
     data = np.load('../drums/drum-midi.npy')
-    data = data.astype(np.float) / 127
+    data = data.astype(np.float)
     if not os.path.exists('dictionary_learner.pkl'):
         # decomp = sklearn.decomposition.NMF(
         #     n_components=32,
@@ -46,9 +46,9 @@ def main():
         # decomp = sklearn.decomposition.MiniBatchDictionaryLearning(
         #     n_components=16, alpha=10, n_jobs=1, batch_size=100, verbose=True)
         decomp = sklearn.decomposition.MiniBatchSparsePCA(
-            n_components=32,
+            n_components=24,
             n_jobs=4,
-            alpha=2,
+            alpha=5,
             ridge_alpha=0.5,
             verbose=True,
             batch_size=64)
@@ -69,7 +69,12 @@ def main():
         neighbours = sklearn.neighbors.NearestNeighbors(
             n_neighbors=10, n_jobs=-1).fit(coeffs)
         nn_graph = nx.Graph(neighbours.kneighbors_graph(n_neighbors=3))
-        # need to relabel the nodes with their coefficients
+        # need to relabel the nodes with their coefficients for later
+        nx.set_node_attributes(
+            nn_graph,
+            name='coefficients',
+            values={node: coeffs[node]
+                    for node in nn_graph})
         end = time.time()
         joblib.dump(nn_graph, 'nn_graph.pkl')
         print('got graph, {}s'.format(end - start))
@@ -78,11 +83,10 @@ def main():
         nn_graph = joblib.load('nn_graph.pkl')
 
     # transform back
-    data *= 127
     if hasattr(decomp, 'inverse_transform'):
-        origs = decomp.inverse_transform(coeffs) * 127
+        origs = decomp.inverse_transform(coeffs)
     else:
-        origs = np.dot(coeffs, decomp.components_) * 127
+        origs = np.dot(coeffs, decomp.components_)
     print('MSE: {}'.format(np.mean((origs - data)**2)))
 
     print('writing a couple of files for comparison')
