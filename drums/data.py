@@ -317,14 +317,14 @@ def _make_metadata_track(name, time_signature, tempo, length):
     ]
 
 
-def make_midi_file(note_events, ticks_per_beat=48, name=None):
+def make_midi_file(note_events, ticks_per_beat=48, name=None, tempo=120):
     """Make a fully fledged midi file out of a list of note on/off events."""
     mfile = mido.MidiFile()
     mfile.ticks_per_beat = ticks_per_beat
     # to be like most midi files I've looked at, we will make a first track
     # with just metadata (tempo in particular)
     first_track = _make_metadata_track(
-        name, (4, 4), 120, sum(event.time for event in note_events))
+        name, (4, 4), tempo, sum(event.time for event in note_events))
     # and the second track is just the notes
     mfile.add_track()
     mfile.add_track()
