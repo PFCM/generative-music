@@ -37,21 +37,21 @@ def main():
     data = data.astype(np.float)
     if not os.path.exists('dictionary_learner.pkl'):
         # decomp = sklearn.decomposition.NMF(
-        #     n_components=32,
-        #     l1_ratio=1.0,
-        #     alpha=1.0,
+        #     n_components=64,
+        #     l1_ratio=0.5,
+        #     alpha=10.0,
         #     solver='cd',
         #     verbose=True,
         # )
-        # decomp = sklearn.decomposition.MiniBatchDictionaryLearning(
-        #     n_components=16, alpha=10, n_jobs=1, batch_size=100, verbose=True)
-        decomp = sklearn.decomposition.MiniBatchSparsePCA(
-            n_components=24,
-            n_jobs=4,
-            alpha=5,
-            ridge_alpha=0.5,
-            verbose=True,
-            batch_size=64)
+        decomp = sklearn.decomposition.MiniBatchDictionaryLearning(
+            n_components=64, alpha=10, n_jobs=2, batch_size=100, verbose=True)
+        # decomp = sklearn.decomposition.MiniBatchSparsePCA(
+        #     n_components=64,
+        #     n_jobs=4,
+        #     alpha=10,
+        #     ridge_alpha=0.5,
+        #     verbose=True,
+        #     batch_size=64)
         print('fitting')
         start = time.time()
         coeffs = decomp.fit_transform(data)
