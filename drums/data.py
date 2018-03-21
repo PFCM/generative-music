@@ -333,6 +333,40 @@ def make_midi_file(note_events, ticks_per_beat=48, name=None, tempo=120):
     return mfile
 
 
+###############################################################################
+# If we want to model the data as an irregularly spaced time series (which is
+# probably more appropriate given that is literally midi data) then the
+# following functions should help.
+#
+# The core idea is to add time delta information as just another feature.
+# This lets us model the sequence auto-regressively but without a fixed
+# resolution grid. See https://arxiv.org/pdf/1802.05162.pdf for inspiration,
+# although the scheme described here isn't exactly that.
+#
+# Specifically for drums we accept some quantisation and encode each note
+# on/off pair into three separate components:
+# - note number (0-7 in this case)
+# - note length (discretised and fairly short, we only allow 16th, 8th, quarter
+#   and half notes (ie. 0-3))
+# - onset delta, relative t the preceding note (again discretised but with a
+#   much wider range of 0-63 sixteenth notes).
+# This then allows us to model each note in the data as 3 separate (not
+# independent) categorical distributions. Note also that we have 8*4*64=2048
+# possible combinations and could therefore encode each note in 11 bits if
+# desired. We could then store it in 16 bit integers, or just as 11 position
+# vectors.
+#
+# Pros:
+# - compact
+# - handles variable time signatures & sequence lengths
+# - extensible to multiple channels, more notes, different amounts of offsets
+#   etc.
+# Cons:
+# - going to get weird with lots of notes starting at the same time because the
+#   order of the events is irrelevent if there are multiple with time delta 0.
+###############################################################################
+
+
 def main():
     import sys
     logging.getLogger().setLevel(logging.WARNING)

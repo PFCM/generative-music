@@ -44,7 +44,7 @@ def main():
         #     verbose=True,
         # )
         decomp = sklearn.decomposition.MiniBatchDictionaryLearning(
-            n_components=64, alpha=10, n_jobs=2, batch_size=100, verbose=True)
+            n_components=256, alpha=10, n_jobs=1, batch_size=10, verbose=True)
         # decomp = sklearn.decomposition.MiniBatchSparsePCA(
         #     n_components=64,
         #     n_jobs=4,
