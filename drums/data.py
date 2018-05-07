@@ -24,9 +24,9 @@ NOTE_INSTRUMENT_MAP = defaultdict(
     {
         35: KICK,  # bass drum 1
         36: KICK,  # bass drum 2
-        37: None,  # rimshot
+        37: SNARE,  # rimshot
         38: SNARE,  # snare drum 1
-        39: None,  # hand clap
+        39: SNARE,  # hand clap
         40: SNARE,  # snare drum 2
         41: TOM_LOW,  # low tom 2
         42: HIHAT_CLOSED,  # closed hihat
@@ -344,17 +344,22 @@ def make_midi_file(note_events, ticks_per_beat=48, name=None, tempo=120):
 # although the scheme described here isn't exactly that.
 #
 # Specifically for drums we accept some quantisation and encode each note
-# on/off pair into three separate components:
+# on/off pair into 4 separate components:
 # - note number (0-7 in this case)
+# - velocity (0-31)
 # - note length (discretised and fairly short, we only allow 16th, 8th, quarter
 #   and half notes (ie. 0-3))
 # - onset delta, relative t the preceding note (again discretised but with a
 #   much wider range of 0-63 sixteenth notes).
 # This then allows us to model each note in the data as 3 separate (not
-# independent) categorical distributions. Note also that we have 8*4*64=2048
-# possible combinations and could therefore encode each note in 11 bits if
-# desired. We could then store it in 16 bit integers, or just as 11 position
-# vectors.
+# independent) categorical distributions. Note also that we have
+# 8*32*4*64=65536 possible combinations and could therefore encode each note in
+# 16 bits if desired. We could then store it in 16 bit integers, or just as 16
+# position vectors. If we use a neural Hawkes process
+# (https://arxiv.org/pdf/1612.09328.pdf) the model itself never actually sees
+# time delta as it is just used to decay the states. We could therefore expand
+# out to a one hot over all 8*32*4=1024 possible notes, which wouldn't be
+# insane.
 #
 # Pros:
 # - compact
@@ -365,6 +370,186 @@ def make_midi_file(note_events, ticks_per_beat=48, name=None, tempo=120):
 # - going to get weird with lots of notes starting at the same time because the
 #   order of the events is irrelevent if there are multiple with time delta 0.
 ###############################################################################
+
+
+def encode_drum_track(mfile):
+    """
+    Pull out the drums from a midi file and encode them as described above.
+    Some midi files have no note offs for drums, so we will just make them
+    sixteenth notes.
+
+    For now just returns the encoding of the first track that has notes in it
+    as a list of integers.
+
+    Returns None if no tracks had notes.
+    """
+    for track in mfile:
+        if _has_notes(track):
+            return [
+                note.to_int()
+                for note in pair_notes(track, mfile.ticks_per_beat)
+            ]
+
+    return None
+
+
+def _has_notes(track):
+    """check if a track has notes in it"""
+    return any(msg.type == 'note_on' for msg in track)
+
+
+def pair_notes(track, ticks_per_beat=48):
+    """
+    Take a midi track and collect pairs of note on/off with appropriate time
+    accounting.
+
+    Results will be a list of Note objects, appropriately converted/quantised.
+    """
+    time_offset = 0  # accumulate time since last note_on
+    ticks_per_sixteenth = ticks_per_beat // 4
+    notes = []
+    for i, msg in enumerate(track):
+        time_offset += msg.time
+        # we only care if it's a note on for a drum we want to keep
+        if msg.type == 'note_on' and NOTE_INSTRUMENT_MAP[msg.note]:
+            length = _find_note_off(msg.note, track[i:]) or ticks_per_sixteenth
+            length = _encode_length(length, ticks_per_sixteenth)
+            velocity = _encode_velocity(velocity)
+            delta = _encode_delta(time_offset, ticks_to_sixteenth)
+            notes.append(
+                Note(NOTE_INSTRUMENT_MAP[msg.note], length, velocity, delta))
+            time_offset = 0
+    return notes
+
+
+def _encode_delta(delta, ticks_per_sixteenth):
+    """
+    Turn a time offset into a number for a note
+    """
+    return int(np.minimum(63, np.round(delta / ticks_per_sixteenth)))
+
+
+def _decode_delta(delta, ticks_per_sixteenth):
+    """
+    Turn a time offset as used in the Note class into ticks
+    """
+    return delta * ticks_per_sixteenth
+
+
+def _encode_velocity(vel):
+    """
+    Turn a velocity from a midi number into a more restrained representation
+    as described below.
+    """
+    return int(np.round(np.maximum(0, vel - 3) / 4))
+
+
+def _decode_velocity(vel):
+    """
+    Turn a velocity from 0-31 as used in the Note class back into the midi
+    range of 0-127
+    """
+    return vel * 4 + 3
+
+
+def _encode_length(length_in_ticks, ticks_per_sixteenth):
+    """Turn length in file ticks to an encoding as specified below"""
+    length_in_sixteenths = np.minimum(
+        np.maximum(0, length_in_ticks / ticks_per_sixteenth), 8)
+    return int(np.round(np.log2(length_in_sixteenths)))
+
+
+def _decode_length(length, ticks_per_sixteenth):
+    """Decode a length the Note class uses into a length in midi file ticks"""
+    length_in_sixteenths = 2**length
+    return length_in_sixteenths * ticks_per_sixteenth
+
+
+def _find_note_off(num, track):
+    """
+    Finds the first note off with note number `num`. Returns the accumulated
+    time offset in ticks or None if we reach the end.
+    """
+    time_offset = 0
+    for msg in track:
+        time_offset += msg.time
+        if msg.type == 'note_off' and msg.note == num:
+            return time_offset
+    return None
+
+
+class Note(object):
+    """
+    Note wrapper holding the length, note number, velocity and
+    time offset with methods to convert to a packed
+    representation for writing.
+    """
+
+    def __init__(self, note_num, length, velocity, delta):
+        """initialise the container. Expected units (if you want to write)
+        are:
+            - note_num: the drum number, see the constants at the top of this
+              file
+            - length: the length of the final note is 2**length sixteenth
+              notes.
+            - velocity: 32 positions which will spread linearly across the midi
+              range.
+            - delta: sixteenth notes, expected to be between 0-63 inclusive.
+        """
+        self.note_num = note_num
+        self.length = length
+        self.velocity = velocity
+        self.delta = delta
+
+    def to_int(self):
+        """
+        Pack the data into the first sixteen bits of an integer.
+        The layout is, starting from the least significant bit:
+        0: note_num
+        1: ..
+        2: ..
+        3: length
+        4: ..
+        5: velocity
+        6: ..
+        7: ..
+        8: ..
+        9: ..
+        a: delta
+        b: ..
+        c: ..
+        d: ..
+        e: ..
+        f: ..
+        """
+        num = self.note_num & 0b111
+        num |= (self.length & 0b11) << 3
+        num |= (self.velocity & 0b11111) << 5
+        num |= (self.delta & 0b111111) << 10
+        return num
+
+    def __eq__(self, value):
+        """it is equal if the values are the same"""
+        return (self.note_num == value.note_num and self.length == value.length
+                and self.velocity == value.velocity
+                and self.delta == value.delta)
+
+    def __repr__(self):
+        """handy to get a good message when printed"""
+        return 'Note(note_num={}, length={}, velocity={}, delta={})'.format(
+            self.note_num, self.length, self.velocity, self.delta)
+
+    @staticmethod
+    def from_int(packed):
+        """
+        Construct a note representation from an integer packed as above
+        """
+        note = packed & 0b111
+        length = (packed >> 3) & 0b11
+        velocity = (packed >> 5) & 0b11111
+        delta = (packed >> 10) & 0b111111
+
+        return Note(note, length, velocity, delta)
 
 
 def main():
