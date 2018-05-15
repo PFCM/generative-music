@@ -383,7 +383,7 @@ def encode_drum_track(mfile):
 
     Returns None if no tracks had notes.
     """
-    for track in mfile:
+    for track in mfile.tracks:
         if _has_notes(track):
             return [
                 note.to_int()
@@ -414,8 +414,8 @@ def pair_notes(track, ticks_per_beat=48):
         if msg.type == 'note_on' and NOTE_INSTRUMENT_MAP[msg.note]:
             length = _find_note_off(msg.note, track[i:]) or ticks_per_sixteenth
             length = _encode_length(length, ticks_per_sixteenth)
-            velocity = _encode_velocity(velocity)
-            delta = _encode_delta(time_offset, ticks_to_sixteenth)
+            velocity = _encode_velocity(msg.velocity)
+            delta = _encode_delta(time_offset, ticks_per_sixteenth)
             notes.append(
                 Note(NOTE_INSTRUMENT_MAP[msg.note], length, velocity, delta))
             time_offset = 0
