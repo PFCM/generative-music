@@ -3,6 +3,7 @@ Helpers to try and clean the data even more by breaking it into chunks if it
 is too long.
 """
 import functools
+from collections import deque
 from itertools import chain
 
 import mido
@@ -109,9 +110,9 @@ def _split_in_half(mfile):
 
 def split_file(mfile, max_bars=32, max_notes=256):
     """Splits a file into non-overlapping chunks with less than `max_notes`
-    'note on' events. Each chunk will be a power of two bars, at most
-    `max_bars`. Proceeds recursively until we have chunks with both conditions
-    met and then attempts to remove duplicates.
+    'note on' events. Each chunk may in the future be a power of two bars, at
+    most `max_bars`. Proceeds "recursively" until we have chunks with both
+    conditions met and then attempts to remove duplicates.
 
     Args:
         mfile: the midi file to split, a mido.MidiFile with a single track.
@@ -129,10 +130,19 @@ def split_file(mfile, max_bars=32, max_notes=256):
     if len(mfile.tracks) != 1:
         raise ValueError('can only handle one midi track, got {}'.format(
             len(mfile.tracks)))
-    # do we have to split at all?
-    if _num_bars(mfile) > max_bars or _num_note_ons(mfile) > max_notes:
-        first, last = _split_in_half(mfile)
-        return chain(
-            split_file(first, max_bars, max_notes),
-            split_file(last, max_bars, max_notes))
-    return (mfile, )
+
+    # turns out in my drum dataset there is a file that hits the recursion
+    # limit (default 1000 for python) so we'll do an iterative version
+    split_queue = deque((mfile, ))
+    results = []
+
+    while split_queue:
+        mfile = split_queue.popleft()
+
+        # do we have to split more?
+        if _num_bars(mfile) > max_bars or _num_note_ons(mfile) > max_notes:
+            splits = _split_in_half(mfile)
+            split_queue.extend(splits)
+        else:
+            results.append(mfile)
+    return results
