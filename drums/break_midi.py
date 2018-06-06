@@ -143,8 +143,11 @@ def split_file(mfile, max_bars=32, max_notes=256):
 
         # do we have to split more?
         if _num_bars(mfile) > max_bars or _num_note_ons(mfile) > max_notes:
-            splits = _split_in_half(mfile)
-            split_queue.extend(splits)
+            try:
+                splits = _split_in_half(mfile)
+                split_queue.extend(splits)
+            except ValueError:  # if we can't split it throw it away
+                pass
         else:
             results.append(mfile)
     return results
