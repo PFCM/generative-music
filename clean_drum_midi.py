@@ -61,13 +61,16 @@ def _has_notes(track):
 def _maybe_process(mfile, num_bars=4):
     """Check to see if the file has a single channel which is channel 10, if
     not make sure it does."""
+    # often there will be two tracks, one of which only has metadata and
+    # one with notes. For now we are just going to ignore tracks without
+    # notes
+    mfile.tracks = list(filter(_has_notes, mfile.tracks))
     if len(mfile.tracks) > 2:
         # not really sure how to handle that :|
         # print(' oh no {} tracks '.format(len(mfile.tracks)))
         # raise SystemExit
         return None
-    # often there will be two tracks, one of which only has metadata and one
-    # with notes. We want to make sure that the one with notes will be all on
+    # We want to make sure that the notes will be all on
     # channel 10 so that it will be treated as drums
     # TODO: make sure the final track still has time signature info etc.
     for track in mfile.tracks:
