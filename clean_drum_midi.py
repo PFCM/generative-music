@@ -67,6 +67,7 @@ def _maybe_process(mfile):
     # often there will be two tracks, one of which only has metadata and one
     # with notes. We want to make sure that the one with notes will be all on
     # channel 10 so that it will be treated as drums
+    # TODO: make sure the final track still has time signature info etc.
     for track in mfile.tracks:
         if _has_notes(track):
             # force them to channel ten
