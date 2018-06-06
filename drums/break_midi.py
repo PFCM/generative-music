@@ -136,7 +136,6 @@ def split_file(mfile, max_bars=32, max_notes=256):
     # turns out in my drum dataset there is a file that hits the recursion
     # limit (default 1000 for python) so we'll do an iterative version
     split_queue = deque((mfile, ))
-    results = []
 
     while split_queue:
         mfile = split_queue.popleft()
@@ -149,5 +148,5 @@ def split_file(mfile, max_bars=32, max_notes=256):
             except ValueError:  # if we can't split it throw it away
                 pass
         else:
-            results.append(mfile)
-    return results
+            # it's ready
+            yield mfile
