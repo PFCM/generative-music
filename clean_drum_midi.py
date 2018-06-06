@@ -17,6 +17,8 @@ from functools import partial
 
 import mido
 
+from drums import break_midi
+
 
 def _directory_typecheck(path):
     """Check a path points to a directory. If it doesn't exist creates it."""
@@ -56,7 +58,7 @@ def _has_notes(track):
         list(filter(lambda m: m.type in ['note_on', 'note_off'], track))) > 0
 
 
-def _maybe_process(mfile):
+def _maybe_process(mfile, num_bars=4):
     """Check to see if the file has a single channel which is channel 10, if
     not make sure it does."""
     if len(mfile.tracks) > 2:
@@ -74,7 +76,7 @@ def _maybe_process(mfile):
             for msg in track:
                 if hasattr(msg, 'channel'):
                     msg.channel = 10
-    return mfile
+    return break_midi.split_file(mfile, max_bars=num_bars)
 
 
 def _hash_midi(mfile):
@@ -89,24 +91,29 @@ def _hash_midi(mfile):
         return hash + '.mid', file_bytes
 
 
+def _hash_and_write(outdir, mfile):
+    """Write a midifile with into `outdir` with a name based on its hash."""
+    name, filebytes = _hash_midi(mfile)
+    newpath = os.path.join(outdir, name)
+    if os.path.exists(newpath):
+        return '__duplicate__'
+    with open(newpath, 'wb') as fhandle:
+        fhandle.write(filebytes)
+    return name
+
+
 def process_file(outdir, in_path):
-    """Grab a file, maybe tidy it up, definitely write it with a new name based
-    on its md5 hash"""
+    """Grab a file, maybe tidy it up & split, definitely write it with a new
+    name based on its md5 hash"""
     try:
         mfile = mido.MidiFile(in_path)
-        mfile = _maybe_process(mfile)
+        mfiles = _maybe_process(mfile)
     except OSError:
         print('could not open {}'.format(in_path))
-        mfile = None
-    if mfile:
-        name, filebytes = _hash_midi(mfile)
-        newpath = os.path.join(outdir, name)
-        if os.path.exists(newpath):
-            return '__duplicate__'
-        with open(newpath, 'wb') as fhandle:
-            fhandle.write(filebytes)
-        return name
-    return in_path
+        mfiles = None
+    if mfiles is not None:
+        return list(map(partial(_hash_and_write, outdir), mfiles))
+    return [in_path]
 
 
 def generate_paths(dirname, recursive=False):
@@ -193,8 +200,9 @@ def main(args=None):
         printer = StatusPrinter()
         names = generate_paths(args.input, args.recursive)
         names = printer.set_input(names)
-        written = pool.imap_unordered(
-            partial(process_file, args.output), names, 1000)
+        written = itertools.chain.from_iterable(
+            pool.imap_unordered(
+                partial(process_file, args.output), names, 1000))
         written = printer.set_output(written)
 
         unique_count, dupe_count, invalid_count = 0, 0, 0
