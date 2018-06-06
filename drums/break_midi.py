@@ -129,7 +129,6 @@ def split_file(mfile, max_bars=32, max_notes=256):
     if len(mfile.tracks) != 1:
         raise ValueError('can only handle one midi track, got {}'.format(
             len(mfile.tracks)))
-    print('bars: {}, notes: {}'.format(_num_bars(mfile), _num_note_ons(mfile)))
     # do we have to split at all?
     if _num_bars(mfile) > max_bars or _num_note_ons(mfile) > max_notes:
         first, last = _split_in_half(mfile)
