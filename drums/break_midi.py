@@ -100,7 +100,7 @@ def _split_in_half(mfile):
     absolute_times = _track_absolute_time(mfile.tracks[0])
     halfway_time = absolute_times[-1][0] / 2.
     split_idx = binary_search(halfway_time, absolute_times, key=lambda x: x[0])
-    if split_idx == 0 or split_idx >= len(absolute_times):
+    if split_idx >= 3 or split_idx >= len(absolute_times) - 3:
         raise ValueError('could not split')
     track_a = mfile.tracks[0][:split_idx]
     track_a.name = track_a.name + '-0'
