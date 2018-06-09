@@ -65,7 +65,7 @@ def _maybe_process(mfile, num_bars=4):
     # one with notes. For now we are just going to ignore tracks without
     # notes
     mfile.tracks = list(filter(_has_notes, mfile.tracks))
-    if len(mfile.tracks) >= 2:
+    if len(mfile.tracks) >= 2 or len(mfile.tracks) == 0:
         # not really sure how to handle that :|
         # print(' oh no {} tracks '.format(len(mfile.tracks)))
         # raise SystemExit

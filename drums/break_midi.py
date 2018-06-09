@@ -4,7 +4,7 @@ is too long.
 """
 import functools
 from collections import deque
-from itertools import chain
+from itertools import chain, islice
 
 import mido
 
@@ -110,6 +110,17 @@ def _split_in_half(mfile):
             _midifile_like(mfile, mfile.tracks[0][split_idx:]))
 
 
+def _chunk(iterable, chunk_size):
+    """Batch up something we can iterate over into chunks of at
+    most chunk_size"""
+    iterator = iter(iterable)
+    while True:
+        chunk = list(islice(iterator, chunk_size))
+        if not chunk:
+            return
+        yield chunk
+
+
 def split_file(mfile, max_bars=32, max_notes=256):
     """Splits a file into non-overlapping chunks with less than `max_notes`
     'note on' events. Each chunk may in the future be a power of two bars, at
@@ -132,6 +143,15 @@ def split_file(mfile, max_bars=32, max_notes=256):
     if len(mfile.tracks) != 1:
         raise ValueError('can only handle one midi track, got {}'.format(
             len(mfile.tracks)))
+
+    # some are _really_ long so we just split them roughly
+    if len(mfile.tracks[0]) >= 8000:
+        split_files = map(
+            partial(_midifile_like, mfile), _chunk(mfile.tracks[0], 8000))
+        return chain.from_iterable(
+            map(
+                partial(split_file, max_bars=max_bars, max_notes=max_notes),
+                split_files))
 
     # turns out in my drum dataset there is a file that hits the recursion
     # limit (default 1000 for python) so we'll do an iterative version
