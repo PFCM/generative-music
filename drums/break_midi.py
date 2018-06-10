@@ -147,10 +147,12 @@ def split_file(mfile, max_bars=32, max_notes=256):
     # some are _really_ long so we just split them roughly
     if len(mfile.tracks[0]) >= 8000:
         split_files = map(
-            partial(_midifile_like, mfile), _chunk(mfile.tracks[0], 8000))
+            functools.partial(_midifile_like, mfile),
+            _chunk(mfile.tracks[0], 8000))
         return chain.from_iterable(
             map(
-                partial(split_file, max_bars=max_bars, max_notes=max_notes),
+                functools.partial(
+                    split_file, max_bars=max_bars, max_notes=max_notes),
                 split_files))
 
     # turns out in my drum dataset there is a file that hits the recursion
