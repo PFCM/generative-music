@@ -89,8 +89,8 @@ def _extract_features(fname, sample_rate, n_fft, hop_size, n_bins):
         n_mels=n_bins,
         fmin=20.0,
         fmax=sample_rate / 2.5)
-    return os.sep.join(fname.split(
-        os.sep)[-2:]), np.log(1e-7 + np.mean(mel_specgram, 1))
+
+    return os.path.abspath(fname), np.log(1e-7 + np.mean(mel_specgram, 1))
 
 
 def extract_audio_features(audio_files,
@@ -126,15 +126,17 @@ def extract_audio_features(audio_files,
 
 
 def write_embeddings(embedding_generator, path):
-    """Write all the embedding pairs into a simple csv file with no headers in
+    """Write all the embedding pairs into a simple tsv file with no headers in
     which the first column is the name of the original and the rest is the
     each dimension of the embedding.
     """
     with open(path, 'w') as outfile:
         for name, embedding in embedding_generator:
-            row = '{}\t{}\n'.format(
-                name.replace('\t', ' '),
-                '\t'.join([str(dim) for dim in embedding]))
+            # make the name relative to the directory we're writing into
+            fname = os.path.relpath(name, os.path.dirname(path))
+            fname = fname.replace('\t', ' ')
+            row = '{}\t{}\n'.format(fname,
+                                    '\t'.join([str(dim) for dim in embedding]))
             outfile.write(row)
         outfile.write('\n')
 
