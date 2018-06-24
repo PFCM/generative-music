@@ -157,6 +157,28 @@ def read_embeddings(embedding_file):
     return names, np.stack(embeddings)
 
 
+def _remove_duplicates(filenames, embeddings, threshold=1):
+    """
+    Attempt to remove embeddings that are very near each other.
+    Potentially involves a lot of distance calculations but there's no other
+    great way.
+    """
+    seen = []
+    for fname, embedding in zip(filenames, embeddings):
+        # slightly roundabout so we can print what is getting skipped for QA
+        if seen:
+            nearest = min(seen, key=lambda x: np.sum(np.abs(embedding - x[1])))
+            dist = np.sum(np.abs(embedding - nearest[1]))
+            if dist < threshold:
+                print('{} == {}  ({:.4f}), skipping'.format(
+                    fname, nearest[0], dist))
+            else:
+                seen.append((fname, embedding))
+                yield fname, embedding
+        else:
+            seen.append((fname, embedding))
+
+
 def umap_dimensionality_reduction(embeddings, new_dims):
     """reduce the dimensionality of the data with UMAP"""
     return umap.UMAP(n_components=new_dims).fit_transform(embeddings)
@@ -197,6 +219,10 @@ def main(args=None):
         mel_embeddings = list(
             extract_audio_features(
                 generate_sample_paths(args.input, args.recursive)))
+        # remove any that are _very_ close to each other because there are
+        # some duplicates in the dataset.
+        print('removing duplicates')
+        mel_embeddings = list(_remove_duplicates(*zip(*mel_embeddings)))
         write_embeddings(mel_embeddings, args.mel_embeddings)
         names, mel_embeddings = zip(*mel_embeddings)
         mel_embeddings = np.stack(mel_embeddings)
