@@ -27,16 +27,19 @@ def _sum_bus(buffer, additions):
     return alive
 
 
-def _make_callback(buffer):
-    """make a callback that will cycle through `buffer`"""
+def _make_callback(in_buffer, out_buffer):
+    """make a callback that will cycle through `in_buffer`, zeroing it out as
+    it goes."""
 
     def _callback(_, frame_count, __, ___):
         """actually push samples"""
         if not hasattr(_callback, 'pos'):
             _callback.pos = 0
-        data = buffer[_callback.pos:_callback.pos + frame_count]
-        _callback.pos = (_callback.pos + frame_count) % buffer.shape[0]
-        return data, pyaudio.paContinue
+        out_buffer[:frame_count] = in_buffer[_callback.pos:
+                                             _callback.pos + frame_count]
+        in_buffer[_callback.pos:_callback.pos + frame_count] = 0
+        _callback.pos = (_callback.pos + frame_count) % in_buffer.shape[0]
+        return out_buffer[:frame_count], pyaudio.paContinue
 
     return _callback
 
@@ -55,7 +58,8 @@ def _play_audio(audio_queue, chunk_size, **kwargs):
     pa_obj = pyaudio.PyAudio()
     stream = pa_obj.open(
         output=True,
-        stream_callback=_make_callback(local_data.buffer),
+        stream_callback=_make_callback(local_data.buffer,
+                                       np.zeros(chunk_size, dtype=np.float32)),
         **kwargs)
 
     pos = 0
