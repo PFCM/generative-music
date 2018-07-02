@@ -3,3 +3,7 @@ numpy
 mido
 scipy
 scikit-learn
+six
+librosa
+git+https://github.com/belangeo/pyo
+umap-learn
