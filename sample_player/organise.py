@@ -157,7 +157,7 @@ def read_embeddings(embedding_file):
     return names, np.stack(embeddings)
 
 
-def _remove_duplicates(filenames, embeddings, threshold=1):
+def _remove_duplicates(filenames, embeddings, threshold=10):
     """
     Attempt to remove embeddings that are very near each other.
     Potentially involves a lot of distance calculations but there's no other
@@ -203,7 +203,7 @@ def parse_args(args=None):
         '--final_size',
         '-s',
         type=int,
-        default=16,
+        default=2,
         help='size of the final processed embeddings')
     parser.add_argument(
         '--output', '-o', help='path for the final embedding output')
