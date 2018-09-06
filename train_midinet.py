@@ -63,6 +63,8 @@ def main(args=None):
     with tf.variable_scope('data'):
         dataset = make_dataset(args.data, args.max_length, args.batch_size,
                                net.receptive_field)
+        # for now just go forever
+        dataset = dataset.repeat()
         # should pad zeros on the front to account for the receptive field
         # of the first event
         data_batch = dataset.make_one_shot_iterator().get_next()
