@@ -44,8 +44,8 @@ def parse_args(args=None):
 def _get_midinet_model(args):
     """get the class that builds the network from the arguments"""
     return MidiNetModel(
-        filter_width=8,
-        dilations=[1, 2, 1, 2, 1, 2, 1, 2, 1],
+        filter_width=2,
+        dilations=[1, 2, 4, 8, 16, 32, 64, 128, 1],
         residual_channels=32,
         dilation_channels=32,
         batch_size=args.batch_size,
@@ -56,16 +56,18 @@ def main(args=None):
     """Try and train the thing. Either from scratch or w/e"""
     args = parse_args(args)
 
+    # get the network builder ready
+    net = _get_midinet_model(args)
+
     print('loading data', end='', flush=True)
     with tf.variable_scope('data'):
-        dataset = make_dataset(args.data, args.max_length, args.batch_size)
+        dataset = make_dataset(args.data, args.max_length, args.batch_size,
+                               net.receptive_field)
         # should pad zeros on the front to account for the receptive field
         # of the first event
         data_batch = dataset.make_one_shot_iterator().get_next()
     print('\rdata ready    ')
 
-    # get the network builder ready
-    net = _get_midinet_model(args)
     print('Ready to build network, receptive field: {}'.format(
         net.receptive_field))
     print('...building network', end='', flush=True)

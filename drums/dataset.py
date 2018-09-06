@@ -22,7 +22,7 @@ def _encode_track(track):
     }
 
 
-def make_dataset(path, max_length, batch_size, one_hot=True):
+def make_dataset(path, max_length, batch_size, front_pad=0, one_hot=True):
     """Load the json encoded results of convert_data.py into a tensorflow
     dataset yielding dictionaries of the various components. The dictionary
     will have keys corresponding parallel time series for the following:
@@ -33,6 +33,10 @@ def make_dataset(path, max_length, batch_size, one_hot=True):
 
     Args:
         path: path to the json containing the encoded data.
+        max_length: maximum length of items in the dataset
+        batch_size: size of the batches of data desired
+        front_pad: extra padding to add to the front of the batches, to account
+            for the receptive field of the network.
         one_hot: whether or not to make the data one-hots of appropriate size
             or to just leave it as integers in the appropriate range. The
             dimensions of the one-hots are currently fixed to the drum
@@ -68,7 +72,19 @@ def make_dataset(path, max_length, batch_size, one_hot=True):
     sizes = {'note': 8, 'vel': 32, 'len': 4, 'delta': 64}
     padded_shapes = {k: [max_length, s] for k, s in sizes.items()}
 
-    return dataset.padded_batch(batch_size, padded_shapes)
+    dataset = dataset.padded_batch(batch_size, padded_shapes)
+    # and now pad again for the receptive field
+    if front_pad > 0:
+
+        def _pad_front(items):
+            """pad the appropriate amount at the beginning of the time axis"""
+            return {
+                k: tf.pad(v, [[0, 0], [front_pad, 0], [0, 0]])
+                for k, v in items.items()
+            }
+
+        dataset = dataset.map(_pad_front)
+    return dataset
 
 
 def _make_onehot(items):
